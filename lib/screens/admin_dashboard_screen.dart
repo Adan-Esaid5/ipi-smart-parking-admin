@@ -5,9 +5,8 @@
  * מה אפשר לשנות בקוד? צבעים, טקסטים, זמני רענון, סינונים ועיצוב.
  * חשוב: שינוי סכומי תשלום, תנאי סינון או שמירה במסד הנתונים משנה התנהגות,
  * לכן לפני שינוי כזה כדאי לשמור עותק ולבדוק את התוצאה.
- * זהו קובץ המקור המקורי בתוספת הסברים; פעולות הקוד לא שונו.
+ * קובץ מעודכן: תצוגת מספרי הרישוי נשמרת אחידה במנהל ובמערכות האחרות.
  */
-
 
 import 'dart:async';
 
@@ -16,11 +15,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/admin_service.dart';
 import '../widgets/car_session_card.dart';
-
-/*
- * שם המסך: AdminDashboardScreen
- * תיאור: מסך ניהול מרכזי לחניונים, רכבים, הודעות, נתונים וגרפים.
- */
 
 enum AdminPanel {
   dashboard,
@@ -40,25 +34,16 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  /// כחול רגיל: שינוי הקוד שבתוך Color משנה את צבע הכפתורים והסמלים.
+
   static const Color blue = Color(0xFF1565C0);
-  /// כחול כהה: משמש לכותרות ולאזורים בולטים.
   static const Color darkBlue = Color(0xFF0D47A1);
-  /// אדום: משמש להדגשה, אזהרה וכפתורי פעולה.
   static const Color red = Color(0xFFD32F2F);
-  /// צבע הרקע של כל מסך המנהל.
   static const Color bg = Color(0xFFF6F9FE);
-  /// צבע הרקע של הכרטיסים והמסגרות.
   static const Color cardBg = Color(0xFFFFFFFF);
-  /// צבע כחול בהיר ברקעים של שדות וכרטיסים.
   static const Color lightBlue = Color(0xFFEAF3FF);
-  /// צבע אדום בהיר לאזהרות ולהדגשות.
   static const Color lightRed = Color(0xFFFFEBEE);
-  /// צבע הקווים מסביב לכרטיסים ושדות.
   static const Color borderColor = Color(0xFFDDEBFF);
-  /// צבע הטקסט הרגיל.
   static const Color textDark = Color(0xFF111827);
-  /// צבע טקסט משני, למשל תיאורים.
   static const Color textMuted = Color(0xFF6B7280);
 
   final adminService = AdminService();
@@ -98,6 +83,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String parkingSearchText = '';
   /// המצב שנבחר לסינון רכבים; all אומר הכול.
   String statusFilter = 'all';
+  // סינון לפי סוג רכב: נכה, סטודנט, רגיל או מנוי.
+  String vehicleTypeFilter = 'all';
   /// החניון שנבחר לסינון; all אומר כל החניונים.
   String parkingFilter = 'all';
   /// איך ממיינים חניונים: busy הוא עמוס קודם, free פנוי קודם.
@@ -242,7 +229,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   /// מונע לחיצה כפולה בזמן רענון מהיר.
   bool _quickRefreshInProgress = false;
 
-  /// מה זה עושה? מרענן מהר חניונים ו-200 כניסות אחרונות. אפשר לשנות מגבלת זמן וכמות, אך זה משפיע על מהירות הטעינה.
+  ///  מרענן מהר חניונים ו-200 כניסות אחרונות. אפשר לשנות מגבלת זמן וכמות, אך זה משפיע על מהירות הטעינה.
   Future<void> _refreshQuickly() async {
     if (_quickRefreshInProgress) return;
     if (!mounted) return;
@@ -449,6 +436,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  // מציג לוחית רישוי בצורה אחידה, בלי לשנות את המספר שנשמר במסד.
+  // 7 ספרות: 12-345-67 | 8 ספרות: 123-45-678.
+  String displayPlate(dynamic value) {
+    final original = (value ?? '').toString().trim();
+    final digits = original.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 7) {
+      return '${digits.substring(0, 2)}-${digits.substring(2, 5)}-${digits.substring(5)}';
+    }
+    if (digits.length == 8) {
+      return '${digits.substring(0, 3)}-${digits.substring(3, 5)}-${digits.substring(5)}';
+    }
+    return original;
+  }
+
   /// מחזיר את שם החניון לתצוגה.
   /// מה זה עושה? מוצא שם חניון מתוך הנתונים; קודם באנגלית ואחר כך בשם חלופי.
   String parkingName(Map<String, dynamic> p) {
@@ -536,10 +537,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return names;
   }
 
+  // מזהה את סוג הרכב מהנתונים ששמורים בביקור.
+  // סטודנט יכול להישמר גם בתור is_student=true וגם בתור vehicle_type=student.
+  String vehicleCategory(Map<String, dynamic> car) {
+    final type = (car['vehicle_type'] ?? 'regular').toString().toLowerCase().trim();
+    // מבדיל בין תו נכה רגיל לכיסא גלגלים לפי הסוג שנשמר בביקור.
+    // רשומות ישנות עם disabled בלבד נשארות ללא תת-סוג ידוע.
+    final subtype = (car['disabled_type'] ?? car['disability_type'] ??
+        car['permit_type'] ?? '').toString().toLowerCase().trim();
+    if (type == 'disabled_wheelchair' || type == 'wheelchair' ||
+        type == 'disabled_wheelchair_vehicle' ||
+        (type == 'disabled' && ['wheelchair', 'disabled_wheelchair', 'wheelchair_accessible'].contains(subtype))) {
+      return 'disabled_wheelchair';
+    }
+    if (type == 'disabled_regular' || (type == 'disabled' && ['regular', 'disabled_regular'].contains(subtype))) return 'disabled_regular';
+    if (type == 'disabled') return 'disabled_unknown';
+    if (type == 'subscriber' || type == 'subscription') return 'subscriber';
+    if (type == 'student' || car['is_student'] == true ||
+        car['is_student']?.toString().toLowerCase() == 'true') return 'student';
+    return 'regular';
+  }
+
+  String vehicleCategoryLabel(Map<String, dynamic> car) {
+    switch (vehicleCategory(car)) {
+      case 'disabled_regular': return 'רכב נכה רגיל';
+      case 'disabled_wheelchair': return 'רכב נכה כיסא גלגלים';
+      case 'disabled_unknown': return 'רכב נכה';
+      case 'student': return 'רכב של סטודנט';
+      case 'subscriber': return 'רכב מנוי';
+      default: return 'רכב רגיל';
+    }
+  }
+
   /// מחזיר את החניות לאחר החלת הסינונים.
   /// מה זה עושה? מסנן כניסות רכב לפי החיפוש, מצב רכב, חניון ותאריך.
   List<Map<String, dynamic>> get filteredSessions {
     final aliases = matchingLotNames(searchText);
+    // שם חסר נחשב גם ערך null, מחרוזת ריקה או 'ללא שם'.
     return sessions.where((car) {
       final q = searchText.toLowerCase().trim();
       // הסרת מקפים, רווחים וסימנים מחיפוש מספר רכב.
@@ -566,6 +600,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           status == statusFilter ||
           paymentStatus == statusFilter;
 
+      final matchesVehicleType = vehicleTypeFilter == 'all' ||
+          vehicleCategory(car) == vehicleTypeFilter;
+
       final matchesParking =
           parkingFilter == 'all' || parking == parkingFilter.toLowerCase();
 
@@ -575,14 +612,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             selectedDate,
           );
 
-      return matchesSearch && matchesStatus && matchesParking && matchesDate;
+      return matchesSearch && matchesStatus && matchesVehicleType && matchesParking && matchesDate;
     }).toList();
   }
 
-  /// מחזיר את החניונים לפי סוג המיון שנבחר.
-  /// מה זה עושה? מסדר את החניונים לפי האפשרות שנבחרה: עמוס, פנוי או רגיל.
+  /// מחזיר את החניונים לפי אפשרות התפריט.
+  /// 'מושהה' מציג רק חניונים שמסומנים is_active = false ב-Supabase.
+  /// שאר האפשרויות שומרות על ההתנהגות הקיימת של מיון החניונים.
   List<Map<String, dynamic>> get sortedParkings {
-    final list = [...parkings];
+    final list = parkingSort == 'suspended'
+        ? parkings.where((p) => p['is_active'] == false).toList()
+        : [...parkings];
 
     if (parkingSort == 'busy') {
       list.sort((a, b) => occupancyPercent(b).compareTo(occupancyPercent(a)));
@@ -816,7 +856,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> adminExitCar(Map<String, dynamic> car) async {
     try {
       await adminService.adminExitCar(car);
-      showMsg('הרכב ${car['plate']} הוצא על ידי מנהל');
+      showMsg('הרכב ${displayPlate(car['plate'])} הוצא על ידי מנהל');
       await loadData();
     } catch (e) {
       showMsg('שגיאה בהוצאת רכב: $e', error: true);
@@ -872,6 +912,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       searchText = '';
       parkingSearchText = '';
       statusFilter = 'all';
+      vehicleTypeFilter = 'all';
       parkingFilter = 'all';
       selectedDate = null;
     });
@@ -1150,103 +1191,219 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     graceController.dispose();
   }
 
-  /// פותח חלון עם פרטי הודעת לקוח.
-  /// מה זה עושה? פותח חלון עם פרטי הודעת לקוח.
+  /// פותח חלון מעוצב באמצע המסך עם כל פרטי הודעת הלקוח.
+  /// השינוי הוא בעיצוב בלבד: פרטי ההודעה נקראים כמו קודם מהנתונים.
   Future<void> openContactMessageDialog(Map<String, dynamic> item) async {
     final name = customerNameFromMessage(item);
     final firstName = (item['first_name'] ?? '').toString().trim();
     final lastName = (item['last_name'] ?? '').toString().trim();
-    final email = (item['email'] ?? '').toString();
-    final phone = (item['phone'] ?? '').toString();
+    final email = (item['email'] ?? '').toString().trim();
+    final phone = (item['phone'] ?? '').toString().trim();
     final messageCarNumber = carNumberFromMessage(item);
     final subject = (item['subject'] ?? 'פנייה חדשה').toString();
     final message = (item['message'] ?? '').toString();
     final createdAt = formatDateTime(item['created_at']);
 
-    await showDialog(
-      context: context,
-      builder: (_) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          title: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: lightRed,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.mark_email_unread,
-                  color: red,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'הודעת לקוח',
-                  style: TextStyle(
-                    color: darkBlue,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
+    // שורת מידע מעוצבת עם אייקון, כותרת וערך שאפשר להעתיק.
+    Widget detailTile(IconData icon, String label, String value) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          color: lightBlue,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: blue, size: 21),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  contactInfoRow(Icons.person, 'שם מלא', name),
-                  if (firstName.isNotEmpty)
-                    contactInfoRow(Icons.badge, 'שם פרטי', firstName),
-                  if (lastName.isNotEmpty)
-                    contactInfoRow(Icons.badge_outlined, 'שם משפחה', lastName),
-                  if (email.isNotEmpty)
-                    contactInfoRow(Icons.email, 'אימייל', email),
-                  if (phone.isNotEmpty)
-                    contactInfoRow(Icons.phone, 'טלפון', phone),
-                  // מציג את הרכב שעליו הפנייה, מתוך הרשומה ב-DB.
-                  contactInfoRow(
-                    Icons.directions_car,
-                    'מספר רכב',
-                    messageCarNumber.isEmpty ? 'לא צוין' : messageCarNumber,
-                  ),
-                  if (createdAt.isNotEmpty)
-                    contactInfoRow(Icons.access_time, 'תאריך', createdAt),
-                  const SizedBox(height: 14),
-                  sectionLabel('נושא'),
-                  infoBox(subject, color: lightBlue),
-                  const SizedBox(height: 12),
-                  sectionLabel('תוכן ההודעה'),
-                  infoBox(
-                    message.isEmpty ? 'ללא תוכן הודעה' : message,
-                    color: bg,
-                  ),
+                  Text(label, style: const TextStyle(
+                    color: textMuted, fontSize: 11, fontWeight: FontWeight.w700,
+                  )),
+                  const SizedBox(height: 3),
+                  SelectableText(value, style: const TextStyle(
+                    color: darkBlue, fontSize: 14, fontWeight: FontWeight.w800,
+                  )),
                 ],
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'סגור',
-                style: TextStyle(
-                  color: darkBlue,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
           ],
-        );
-      },
+        ),
+      );
+    }
+
+    // מציג את החלון במרכז המסך. תוכן ארוך נגלל בלי לחרוג מהגובה.
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Dialog(
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 640,
+              maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.86,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // כותרת כחולה עם סימון אדום, שם המערכת וכפתור סגירה.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                  decoration: const BoxDecoration(color: darkBlue),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: red,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(Icons.mark_email_unread_rounded,
+                            color: Colors.white, size: 27),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('IPI SMART PARKING', style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            )),
+                            SizedBox(height: 3),
+                            Text('הודעת לקוח', style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w900,
+                            )),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // כל פרטי הלקוח ותוכן ההודעה מוצגים באזור שניתן לגלול.
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          const Icon(Icons.person_outline, color: red, size: 21),
+                          const SizedBox(width: 7),
+                          const Text('פרטי הפונה', style: TextStyle(
+                            color: darkBlue, fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          )),
+                          const Spacer(),
+                          if (createdAt.isNotEmpty)
+                            Flexible(child: Text(createdAt,
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(color: textMuted, fontSize: 11),
+                            )),
+                        ]),
+                        const SizedBox(height: 12),
+                        detailTile(Icons.person, 'שם מלא', name),
+                        if (firstName.isNotEmpty)
+                          detailTile(Icons.badge_outlined, 'שם פרטי', firstName),
+                        if (lastName.isNotEmpty)
+                          detailTile(Icons.badge, 'שם משפחה', lastName),
+                        if (email.isNotEmpty)
+                          detailTile(Icons.email_outlined, 'דואר אלקטרוני', email),
+                        if (phone.isNotEmpty)
+                          detailTile(Icons.phone_outlined, 'מספר טלפון', phone),
+                        detailTile(Icons.directions_car_outlined, 'מספר רכב',
+                          messageCarNumber.isEmpty ? 'לא צוין' : messageCarNumber),
+                        const SizedBox(height: 12),
+                        const Divider(color: borderColor),
+                        const SizedBox(height: 12),
+                        const Text('נושא הפנייה', style: TextStyle(
+                          color: darkBlue, fontSize: 16, fontWeight: FontWeight.w900,
+                        )),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(15),
+                          decoration: BoxDecoration(
+                            color: lightRed,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: red.withOpacity(0.18)),
+                          ),
+                          child: SelectableText(subject, style: const TextStyle(
+                            color: darkBlue, fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                          )),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('תוכן ההודעה', style: TextStyle(
+                          color: darkBlue, fontSize: 16, fontWeight: FontWeight.w900,
+                        )),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(17),
+                          decoration: BoxDecoration(
+                            color: bg,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: borderColor),
+                          ),
+                          child: SelectableText(
+                            message.isEmpty ? 'ללא תוכן הודעה' : message,
+                            style: const TextStyle(
+                              color: textDark, fontSize: 14.5,
+                              height: 1.6, fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // אזור קבוע בתחתית החלון לסגירה נוחה.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: borderColor)),
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.check, size: 18),
+                      label: const Text('סגור'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 25, vertical: 13,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1935,17 +2092,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
     ];
 
-    return GridView.builder(
-      itemCount: cards.length,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 245,
-        mainAxisExtent: 110,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-      ),
-      itemBuilder: (_, index) => cards[index],
+    // כרטיסי ההכנסות רחבים יותר כדי שהסכום המלא יוצג בלי שלוש נקודות.
+    // הרוחב מותאם אוטומטית גם למסכים צרים, ללא גלילה אופקית.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final regularWidth = availableWidth < 220 ? availableWidth : 220.0;
+        final incomeWidth = availableWidth < 360 ? availableWidth : 360.0;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (var index = 0; index < cards.length; index++)
+              SizedBox(
+                width: index >= 6 ? incomeWidth : regularWidth,
+                height: 110,
+                child: cards[index],
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -1979,18 +2145,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          Flexible(
+          Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  value,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: darkBlue,
-                    fontSize: 23,
-                    fontWeight: FontWeight.w900,
+                // מציגים מספר מלא כולל פסיקים ושתי ספרות עשרוניות.
+                // רק אם המסך צר במיוחד, הכתב יקטן במקום לקצר את המספר.
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        color: darkBlue,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                 ),
                 Text(
@@ -2051,12 +2227,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       values['total_spots']!.text = '100';
       // ברירת מחדל לחניון חדש: מספר מקומות פנויים.
       values['available_spots']!.text = '100';
+      // ברירת מחדל לחניון חדש; אפשר לערוך ידנית ולשמור.
+      values['opening_hours']!.text = '24/7';
     }
     // Only the three parking features requested by the administrator.
     // כאן נמצאות אפשרויות המאפיינים שאפשר לסמן לחניון.
+    // ✓ = אותו סוג רכב לא משלם בחניון; ללא ✓ = חיוב לפי מחירון.
     final featureChoices = <String, String>{
-      'disabled_regular': 'תו נכה רגיל',
-      'disabled_wheelchair': 'תו נכה כיסא גלגלים',
+      'disabled_regular': 'נכה רגיל – פטור מתשלום',
+      'disabled_wheelchair': 'נכה עם כיסא גלגלים – פטור מתשלום',
       'payment_machines': 'מכונות תשלום',
     };
     // Supported payment methods are informational; no payment gateway is called.
@@ -2067,6 +2246,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       'cash': 'מזומן',
       'credit_card': 'אשראי',
     };
+    // ערכי ה-checkbox נשמרים ב-ipi_features: כל סוג נכה נבדק בנפרד.
     // Keep only currently supported values when opening an older parking lot.
     // This also removes obsolete choices when that lot is saved again.
     bool flag(dynamic value) => value == true || value == 1 ||
@@ -2247,7 +2427,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         color: darkBlue, fontWeight: FontWeight.w900, fontSize: 16)),
                     ...['price_per_minute','daily_max','grace_minutes','total_spots',
                         'available_spots'].map(field),
-                    options('מאפייני החניון', featureChoices, selectedFeatures),
+                    // סימון ✓ של כל סוג נכה קובע האם הוא פטור מתשלום בחניון הזה.
+                    options('פטור מתשלום לפי סוג נכה (✓ = חינם)', featureChoices, selectedFeatures),
                     options('אמצעי תשלום נתמכים (מידע בלבד)', paymentChoices, selectedPayments),
                     const SizedBox(height: 12),
                   ]),
@@ -2374,6 +2555,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     DropdownMenuItem(value: 'default', child: Text('רגיל')),
                     DropdownMenuItem(value: 'busy', child: Text('עמוס')),
                     DropdownMenuItem(value: 'free', child: Text('פנוי')),
+                    DropdownMenuItem(value: 'suspended', child: Text('מושהה')),
                   ],
                   onChanged: (value) {
                     if (value == null) return;
@@ -2584,10 +2766,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 isExpanded: true,
                 decoration: const InputDecoration(border: InputBorder.none),
                 items: const [
-                  DropdownMenuItem(value: 'all', child: Text('הכול')),
+                  DropdownMenuItem(value: 'all', child: Text('מצב הרכבים')),
                   DropdownMenuItem(value: 'parking', child: Text('חונה')),
                   DropdownMenuItem(value: 'exited', child: Text('יצא')),
                   DropdownMenuItem(value: 'paid', child: Text('שילם')),
+                  DropdownMenuItem(value: 'not_required', child: Text('פטור מתשלום')),
                   DropdownMenuItem(
                     value: 'waiting_payment',
                     child: Text('ממתין'),
@@ -2596,6 +2779,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 onChanged: (value) {
                   if (value == null) return;
                   setState(() => statusFilter = value);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 190,
+            child: modernInput(
+              child: DropdownButtonFormField<String>(
+                value: vehicleTypeFilter,
+                isExpanded: true,
+                decoration: const InputDecoration(border: InputBorder.none),
+                items: const [
+                  DropdownMenuItem(value: 'all', child: Text(' סוגי הרכבים')),
+                  DropdownMenuItem(value: 'disabled_regular', child: Text('רכב נכה רגיל')),
+                  DropdownMenuItem(value: 'disabled_wheelchair', child: Text('רכב נכה כיסא גלגלים')),
+                  DropdownMenuItem(value: 'student', child: Text('רכב של סטודנט')),
+                  DropdownMenuItem(value: 'regular', child: Text('רכב רגיל')),
+                  DropdownMenuItem(value: 'subscriber', child: Text('רכב מנוי')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => vehicleTypeFilter = value);
                 },
               ),
             ),
@@ -2632,6 +2838,153 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  // פותח את הקבלה של ביקור ששולם. כל הנתונים נקראים מחדש לפי מזהה הביקור.
+  Future<void> openCarReceipt(Map<String, dynamic> car) async {
+    if (car['payment_status'] != 'paid') return;
+    Map<String, dynamic> receipt = car;
+    final sessionId = car['id'];
+    if (sessionId != null) {
+      try {
+        final fresh = await supabase.from('parking_sessions')
+            .select().eq('id', sessionId).maybeSingle();
+        if (fresh == null || fresh['payment_status'] != 'paid') {
+          if (mounted) showMsg('לא נמצאה קבלה עבור תשלום מאושר', error: true);
+          return;
+        }
+        receipt = Map<String, dynamic>.from(fresh);
+      } catch (e) {
+        if (mounted) showMsg('לא ניתן לטעון קבלה: $e', error: true);
+        return;
+      }
+    }
+    if (!mounted) return;
+
+    final receiptNumber = (receipt['receipt_number'] ?? '').toString().trim();
+    final price = double.tryParse((receipt['total_price'] ??
+        receipt['amount'] ?? 0).toString()) ?? 0;
+    // אין להמציא מספר קבלה אם עדיין לא הורץ עדכון המספור ב-Supabase.
+    final numberText = receiptNumber.isEmpty
+        ? 'טרם הוקצה — יש להריץ את עדכון מספרי הקבלות ב-Supabase'
+        : receiptNumber;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 510, maxHeight: 650),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // כותרת מעוצבת בכחול ואדום – ללא שינוי בנתוני הקבלה.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 22),
+                decoration: const BoxDecoration(
+                  color: darkBlue,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(11),
+                    decoration: BoxDecoration(color: red, borderRadius: BorderRadius.circular(15)),
+                    child: const Icon(Icons.receipt_long, color: Colors.white, size: 27),
+                  ),
+                  const SizedBox(width: 13),
+                  const Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('IPI SMART PARKING', style: TextStyle(
+                          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
+                      Text('פרטי קבלה', style: TextStyle(
+                          color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                    ],
+                  )),
+                  const Icon(Icons.verified, color: Colors.white, size: 26),
+                ]),
+              ),
+              Flexible(child: SingleChildScrollView(
+                padding: const EdgeInsets.all(22),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: lightBlue,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('מספר קבלה', style: TextStyle(color: textMuted, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        SelectableText(numberText, style: const TextStyle(
+                          color: darkBlue, fontSize: 19, fontWeight: FontWeight.w900)),
+                      ]),
+                    ),
+                    const SizedBox(height: 17),
+                    _receiptDetailRow(Icons.directions_car, 'מספר רכב',
+                        displayPlate(receipt['plate'])),
+                    _receiptDetailRow(Icons.person, 'שם לקוח',
+                        (receipt['customer_name'] ?? '-').toString()),
+                    _receiptDetailRow(Icons.local_parking, 'חניון',
+                        (receipt['parking_name'] ?? '-').toString()),
+                    _receiptDetailRow(Icons.category, 'סוג רכב', vehicleCategoryLabel(receipt)),
+                    _receiptDetailRow(Icons.login, 'כניסה', formatDateTime(receipt['entry_time'])),
+                    _receiptDetailRow(Icons.logout, 'יציאה', formatDateTime(receipt['exit_time'])),
+                    _receiptDetailRow(Icons.check_circle_outline, 'סטטוס', 'שולם'),
+                    const SizedBox(height: 9),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(17),
+                      decoration: BoxDecoration(color: lightRed,
+                          borderRadius: BorderRadius.circular(16)),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text('סכום ששולם', style: TextStyle(
+                            color: darkBlue, fontWeight: FontWeight.w800)),
+                        Text('₪${price.toStringAsFixed(2)}', style: const TextStyle(
+                            fontSize: 23, color: red, fontWeight: FontWeight.w900)),
+                      ]),
+                    ),
+                  ],
+                ),
+              )),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: blue, foregroundColor: Colors.white),
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('סגור'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // שורת מידע בעיצוב אחיד בתוך חלון הקבלה.
+  Widget _receiptDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(children: [
+        Icon(icon, size: 19, color: blue),
+        const SizedBox(width: 9),
+        SizedBox(width: 95, child: Text(label, style: const TextStyle(
+            color: textMuted, fontWeight: FontWeight.w600))),
+        Expanded(child: SelectableText(value, style: const TextStyle(
+            color: darkBlue, fontWeight: FontWeight.w800))),
+      ]),
+    );
+  }
+
   /// יוצר את רשימת הרכבים המסוננת.
   /// מה זה עושה? מציג רשימת רכבים שמתאימים לסינון, או הודעה אם אין תוצאות.
   Widget buildCarsList() {
@@ -2660,9 +3013,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 9),
-                      child: CarSessionCard(
-                        car: car,
-                        onAdminExit: () => adminExitCar(car),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CarSessionCard(
+                            car: car,
+                            onAdminExit: () => adminExitCar(car),
+                          ),
+                          if (car['payment_status'] == 'paid')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 14),
+                              child: TextButton.icon(
+                                onPressed: () => openCarReceipt(car),
+                                icon: const Icon(Icons.receipt_long, size: 17),
+                                label: Text(
+                                  (car['receipt_number'] ?? '').toString().trim().isEmpty
+                                      ? 'צפה בקבלה'
+                                      : 'צפה בקבלה • ${car['receipt_number']}',
+                                  style: const TextStyle(
+                                    decoration: TextDecoration.underline,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                style: TextButton.styleFrom(foregroundColor: blue),
+                              ),
+                            ),
+                        ],
                       ),
                     );
                   },
